@@ -39,7 +39,7 @@ const float = {
 };
 
 export default function AuthPage() {
-  const { currentUser, signInWithGoogle, setUserRole, setUserDetails } = useAuth();
+  const { currentUser, signInWithGoogle, setUserRole, setUserDetails, error: authError } = useAuth();
   const [selectedRole, setSelectedRole] = useState<UserRole>('student');
   const [name, setName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -76,6 +76,11 @@ export default function AuthPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    if (!currentUser) {
+      setError('Please sign in first');
+      return;
+    }
+
     if (!name.trim()) {
       setError('Please enter your name');
       return;
@@ -95,9 +100,13 @@ export default function AuthPage() {
       setError(null);
       setLoading(true);
 
+      // Wait for a short time to ensure auth state is stable
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
       const userDetails: UserDetails = {
         name: name.trim(),
         phoneNumber: phoneNumber.trim(),
+        role: selectedRole,
         ...(selectedRole === 'house' && {
           location: {
             address: address.trim(),
@@ -106,11 +115,23 @@ export default function AuthPage() {
         })
       };
 
-      await setUserRole(selectedRole);
       await setUserDetails(userDetails);
-    } catch (error) {
+      
+      // Clear form and navigate after successful update
+      setName('');
+      setPhoneNumber('');
+      setAddress('');
+      setArea('');
+      navigate('/');
+    } catch (error: any) {
       console.error('Error updating user details:', error);
-      setError('Unable to update user details. Please try again.');
+      if (error.code === 'permission-denied') {
+        setError('Access denied. Please try signing out and in again.');
+      } else if (error.message?.includes('ERR_BLOCKED_BY_CLIENT')) {
+        setError('Please disable any ad blockers or privacy extensions for this site.');
+      } else {
+        setError('Unable to update user details. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -226,49 +247,73 @@ export default function AuthPage() {
           </p>
         </div>
 
-        {error && (
+        {(error || authError) && (
           <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-4">
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                <span className="material-icons-outlined text-red-600 dark:text-red-400">error_outline</span>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-red-800 dark:text-red-300">
+                  Error updating profile
+                </h3>
+                <div className="mt-2 text-sm text-red-700 dark:text-red-200 whitespace-pre-line">
+                  {error || authError}
+                </div>
+                {(error || authError)?.includes('ERR_BLOCKED_BY_CLIENT') && (
+                  <div className="mt-4">
+                    <button
+                      onClick={() => window.location.reload()}
+                      className="text-sm font-medium text-red-800 dark:text-red-300 hover:text-red-900 dark:hover:text-red-200"
+                    >
+                      Refresh Page
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              I am a...
-            </label>
-            <div className="mt-2 grid grid-cols-2 gap-3">
-              <motion.button
-                type="button"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setSelectedRole('student')}
-                className={`px-4 py-3 text-sm font-medium rounded-lg flex items-center justify-center space-x-2 transition-colors ${
-                  selectedRole === 'student'
-                    ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-100 border-2 border-amber-500'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-2 border-transparent'
-                }`}
-              >
-                <span className="material-icons-outlined">school</span>
-                <span>Student</span>
-              </motion.button>
-              <motion.button
-                type="button"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setSelectedRole('house')}
-                className={`px-4 py-3 text-sm font-medium rounded-lg flex items-center justify-center space-x-2 transition-colors ${
-                  selectedRole === 'house'
-                    ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-100 border-2 border-amber-500'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-2 border-transparent'
-                }`}
-              >
-                <span className="material-icons-outlined">home</span>
-                <span>House</span>
-              </motion.button>
-            </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            I am a...
+          </label>
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                console.log('Setting role to student');
+                setSelectedRole('student');
+              }}
+              className={`px-4 py-3 text-sm font-medium rounded-lg flex items-center justify-center space-x-2 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] ${
+                selectedRole === 'student'
+                  ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-100 border-2 border-amber-500'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-2 border-transparent'
+              }`}
+            >
+              <span className="material-icons-outlined">school</span>
+              <span>Student</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                console.log('Setting role to house');
+                setSelectedRole('house');
+              }}
+              className={`px-4 py-3 text-sm font-medium rounded-lg flex items-center justify-center space-x-2 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] ${
+                selectedRole === 'house'
+                  ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-100 border-2 border-amber-500'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-2 border-transparent'
+              }`}
+            >
+              <span className="material-icons-outlined">home</span>
+              <span>House</span>
+            </button>
           </div>
+        </div>
 
+        <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Name

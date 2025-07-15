@@ -2,15 +2,14 @@ import { Timestamp } from 'firebase/firestore';
 
 export type UserRole = 'student' | 'house';
 
-export interface Location {
-  address: string;
-  area: string;
-}
-
 export interface UserDetails {
   name: string;
   phoneNumber: string;
-  location?: Location; // Optional, only for house users
+  role: UserRole;
+  location?: {
+    address: string;
+    area: string;
+  };
 }
 
 export interface FoodItem {
