@@ -8,12 +8,15 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db, googleProvider } from '../config/firebase';
-import { UserRole } from '../types';
+import { UserRole, Location, UserDetails } from '../types';
 
 interface User {
   uid: string;
   email: string;
   role?: UserRole;
+  name?: string;
+  phoneNumber?: string;
+  location?: Location;
 }
 
 interface AuthContextType {
@@ -21,6 +24,7 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   setUserRole: (role: UserRole) => Promise<void>;
+  setUserDetails: (details: UserDetails) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -51,15 +55,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       return {
         uid: user.uid,
-        email: user.email!,
-        role: undefined as unknown as UserRole // This will trigger role selection
+        email: user.email!
       };
     }
     
+    const data = userDoc.data();
     return {
       uid: user.uid,
       email: user.email!,
-      role: userDoc.data().role as UserRole
+      role: data.role as UserRole,
+      name: data.name,
+      phoneNumber: data.phoneNumber,
+      location: data.location as Location | undefined
     };
   };
 
@@ -74,8 +81,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           // Set basic user data even if Firestore operation fails
           setCurrentUser({
             uid: user.uid,
-            email: user.email!,
-            role: undefined as unknown as UserRole
+            email: user.email!
           });
         }
       } else {
@@ -116,6 +122,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const setUserDetails = async (details: UserDetails) => {
+    if (!currentUser) throw new Error('No user logged in');
+
+    try {
+      const userRef = doc(db, 'users', currentUser.uid);
+      await setDoc(userRef, {
+        ...details,
+        updatedAt: new Date()
+      }, { merge: true });
+
+      setCurrentUser(prev => prev ? { ...prev, ...details } : null);
+    } catch (error) {
+      console.error('Error setting user details:', error);
+      throw error;
+    }
+  };
+
   const logout = async () => {
     try {
       await signOut(auth);
@@ -130,7 +153,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     currentUser,
     signInWithGoogle,
     logout,
-    setUserRole
+    setUserRole,
+    setUserDetails
   };
 
   return (

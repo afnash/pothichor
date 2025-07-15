@@ -7,7 +7,6 @@ emailjs.init("vkkMaE1rgAMwrPBA9");
 // Constants for EmailJS configuration
 const EMAILJS_SERVICE_ID = "service_ybw20i4";
 const EMAILJS_ORDER_TEMPLATE_ID = "template_bd11dcb";
-//const EMAILJS_REMINDER_TEMPLATE_ID = "template_bd11dcb";
 
 export const sendOrderConfirmation = async (userEmail: string, meal: Meal) => {
   try {
@@ -17,8 +16,8 @@ export const sendOrderConfirmation = async (userEmail: string, meal: Meal) => {
       pickup_time: meal.pickupTime.toLocaleString(),
       price: `Rs. ${meal.price}`,
       food_items: meal.foodItems.map(item => item.name).join(", "),
-      from_name: "Pothichor", // Add sender name
-      message: `Your order for ${meal.mealTitle} has been confirmed! Please pick up your meal at ${meal.pickupTime.toLocaleString()}.` // Add message
+      from_name: "Pothichor",
+      message: `Your order for ${meal.mealTitle} has been confirmed! Please pick up your meal at ${meal.pickupTime.toLocaleString()}.`
     };
 
     const response = await emailjs.send(
@@ -34,7 +33,6 @@ export const sendOrderConfirmation = async (userEmail: string, meal: Meal) => {
     return true;
   } catch (error) {
     console.error('Error sending order confirmation:', error);
-    // Don't throw the error, just return false
     return false;
   }
 };
@@ -59,7 +57,6 @@ export const schedulePickupReminder = async (userEmail: string, meal: Meal) => {
     return true;
   } catch (error) {
     console.error('Error scheduling pickup reminder:', error);
-    // Don't throw the error, just return false
     return false;
   }
 };

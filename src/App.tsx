@@ -16,7 +16,7 @@ function App() {
   const [showRoleDialog, setShowRoleDialog] = useState(false);
 
   useEffect(() => {
-    if (currentUser && !currentUser.role) {
+    if (currentUser && !currentUser.role && !currentUser.name) {
       setShowRoleDialog(true);
     } else {
       setShowRoleDialog(false);
@@ -55,10 +55,14 @@ function App() {
               path="/"
               element={
                 currentUser ? (
-                  currentUser.role === 'student' ? (
-                    <StudentDashboard />
+                  currentUser.role && currentUser.name ? (
+                    currentUser.role === 'student' ? (
+                      <StudentDashboard />
+                    ) : (
+                      <HouseDashboard />
+                    )
                   ) : (
-                    <HouseDashboard />
+                    <AuthPage />
                   )
                 ) : (
                   <Navigate to="/auth" />
@@ -76,6 +80,9 @@ function App() {
                 )
               }
             />
+
+            {/* Catch-all route for unmatched paths */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AnimatePresence>
 

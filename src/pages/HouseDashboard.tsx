@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../config/firebase';
-import { collection, addDoc, query, where, getDocs, Timestamp, orderBy, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, Timestamp, orderBy, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { analyzeNutrition } from '../services/gemini';
 import { Meal, FoodItem, PastOrder } from '../types';
 
@@ -23,19 +23,20 @@ export default function HouseDashboard() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
 
-  // Set default dates
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const defaultOrderDeadline = today.toISOString().slice(0, 10); // Just the date part 'YYYY-MM-DD'
-  const defaultPickupTime = today.toISOString().slice(0, 10); // Just the date part 'YYYY-MM-DD'
+  // Set default dates and times
+  const currentDate = new Date();
+  const today = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
+  const defaultOrderDeadline = today.toISOString().slice(0, 10);
+  const defaultPickupTime = today.toISOString().slice(0, 10);
+  const currentTime = currentDate.toTimeString().slice(0, 5); // Get current time in HH:mm format
 
   const [formData, setFormData] = useState<MealFormData>({
     mealTitle: '',
     price: '',
     pickupTime: defaultPickupTime,
-    pickupTimeHour: '',
+    pickupTimeHour: currentTime,
     orderDeadline: defaultOrderDeadline,
-    orderDeadlineHour: '',
+    orderDeadlineHour: currentTime,
     quantityPrepared: '',
     foodItems: ['']
   });
@@ -49,24 +50,38 @@ export default function HouseDashboard() {
   }, [currentUser]);
 
   const fetchMeals = async () => {
+    if (!currentUser?.uid) return;
+    
     try {
       const mealsRef = collection(db, 'meals');
-      const q = query(mealsRef, where('houseId', '==', currentUser?.uid));
+      const q = query(mealsRef, where('houseId', '==', currentUser.uid));
       const querySnapshot = await getDocs(q);
+      
+      // Get user details for house
+      const userRef = doc(db, 'users', currentUser.uid);
+      const userDoc = await getDoc(userRef);
+      const userData = userDoc.data() || {};
       
       const fetchedMeals = querySnapshot.docs.map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
           ...data,
+          houseName: userData.name || currentUser.email?.split('@')[0] || 'Unknown House',
+          houseLocation: userData.location || null,
+          housePhone: userData.phoneNumber || '',
           pickupTime: data.pickupTime instanceof Timestamp 
             ? data.pickupTime.toDate() 
             : new Date(data.pickupTime),
           orderDeadline: data.orderDeadline instanceof Timestamp
             ? data.orderDeadline.toDate()
-            : new Date(data.orderDeadline)
-        };
-      }) as Meal[];
+            : new Date(data.orderDeadline),
+          foodItems: data.foodItems || [], // Ensure foodItems is always an array
+          ordersAccepted: data.ordersAccepted || 0, // Ensure ordersAccepted has a default value
+          isAvailable: typeof data.isAvailable === 'boolean' ? data.isAvailable : true, // Ensure isAvailable has a default value
+          orders: data.orders || [] // Include orders array
+        } as Meal;
+      });
 
       console.log('Fetched meals:', fetchedMeals);
       setMeals(fetchedMeals);
@@ -102,7 +117,7 @@ export default function HouseDashboard() {
     const now = new Date();
     const completedMeals = meals.filter(meal => {
       const pickupTimePlusHour = new Date(meal.pickupTime.getTime() + 60 * 60000);
-      return pickupTimePlusHour <= now && meal.isAvailable;
+      return pickupTimePlusHour <= now;  // Remove the isAvailable check
     });
 
     for (const meal of completedMeals) {
@@ -177,6 +192,14 @@ export default function HouseDashboard() {
       const orderDeadline = new Date(`${formData.orderDeadline}T${formData.orderDeadlineHour}`);
       const now = new Date();
 
+      console.log('Debug Pickup Time:', {
+        date: formData.pickupTime,
+        time: formData.pickupTimeHour,
+        combined: pickupTime,
+        localString: pickupTime.toLocaleString(),
+        timestamp: pickupTime.getTime()
+      });
+
       // Validate dates
       if (orderDeadline <= now) {
         alert('Order deadline must be in the future');
@@ -207,6 +230,9 @@ export default function HouseDashboard() {
       // Create new meal
       const mealData = {
         houseId: currentUser.uid,
+        houseName: currentUser.name || currentUser.email?.split('@')[0] || 'Unknown House',
+        houseLocation: currentUser.location || null,
+        housePhone: currentUser.phoneNumber || '',
         mealTitle: formData.mealTitle,
         price: Number(formData.price),
         pickupTime: Timestamp.fromDate(pickupTime),
@@ -218,8 +244,16 @@ export default function HouseDashboard() {
         totalCalories,
         totalProtein,
         isVeg,
-        createdAt: Timestamp.now()
+        createdAt: Timestamp.now(),
+        orders: []
       };
+
+      console.log('Firestore Data:', {
+        pickupTime: mealData.pickupTime,
+        pickupTimeDate: mealData.pickupTime.toDate(),
+        orderDeadline: mealData.orderDeadline,
+        orderDeadlineDate: mealData.orderDeadline.toDate()
+      });
 
       await addDoc(collection(db, 'meals'), mealData);
 
@@ -228,9 +262,9 @@ export default function HouseDashboard() {
         mealTitle: '',
         price: '',
         pickupTime: defaultPickupTime,
-        pickupTimeHour: '',
+        pickupTimeHour: currentTime,
         orderDeadline: defaultOrderDeadline,
-        orderDeadlineHour: '',
+        orderDeadlineHour: currentTime,
         quantityPrepared: '',
         foodItems: ['']
       });
@@ -249,7 +283,7 @@ export default function HouseDashboard() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
       <h1 className="text-2xl font-bold mb-8">House Dashboard</h1>
       
       {/* Add Meal Button/Form */}
@@ -257,101 +291,107 @@ export default function HouseDashboard() {
         {!showForm ? (
           <button
             onClick={() => setShowForm(true)}
-            className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700"
+            className="w-full sm:w-auto bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700"
           >
             + Add New Meal
           </button>
         ) : (
-          <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6">
             <div className="space-y-4">
-              <div>
-                <label htmlFor="mealTitle" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Meal Title
-                </label>
-                <input
-                  type="text"
-                  id="mealTitle"
-                  name="mealTitle"
-                  value={formData.mealTitle}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
-                  required
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="mealTitle" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Meal Title
+                  </label>
+                  <input
+                    type="text"
+                    id="mealTitle"
+                    name="mealTitle"
+                    value={formData.mealTitle}
+                    onChange={handleInputChange}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="price" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Price (Rs.)
+                  </label>
+                  <input
+                    type="number"
+                    id="price"
+                    name="price"
+                    value={formData.price}
+                    onChange={handleInputChange}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
+                    required
+                  />
+                </div>
               </div>
 
-              <div>
-                <label htmlFor="price" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Price (Rs.)
-                </label>
-                <input
-                  type="number"
-                  id="price"
-                  name="price"
-                  value={formData.price}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
-                  required
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="pickupTime" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Pickup Date
+                  </label>
+                  <input
+                    type="date"
+                    id="pickupTime"
+                    name="pickupTime"
+                    value={formData.pickupTime}
+                    onChange={handleInputChange}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="pickupTimeHour" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Pickup Time
+                  </label>
+                  <input
+                    type="time"
+                    id="pickupTimeHour"
+                    name="pickupTimeHour"
+                    value={formData.pickupTimeHour}
+                    onChange={handleInputChange}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
+                    required
+                  />
+                </div>
               </div>
 
-              <div>
-                <label htmlFor="pickupTime" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Pickup Date
-                </label>
-                <input
-                  type="date"
-                  id="pickupTime"
-                  name="pickupTime"
-                  value={formData.pickupTime}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
-                  required
-                />
-              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="orderDeadline" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Order Deadline Date
+                  </label>
+                  <input
+                    type="date"
+                    id="orderDeadline"
+                    name="orderDeadline"
+                    value={formData.orderDeadline}
+                    onChange={handleInputChange}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
+                    required
+                  />
+                </div>
 
-              <div>
-                <label htmlFor="pickupTimeHour" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Pickup Time
-                </label>
-                <input
-                  type="time"
-                  id="pickupTimeHour"
-                  name="pickupTimeHour"
-                  value={formData.pickupTimeHour}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
-                  required
-                />
-              </div>
-
-              <div>
-                <label htmlFor="orderDeadline" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Order Deadline Date
-                </label>
-                <input
-                  type="date"
-                  id="orderDeadline"
-                  name="orderDeadline"
-                  value={formData.orderDeadline}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
-                  required
-                />
-              </div>
-
-              <div>
-                <label htmlFor="orderDeadlineHour" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Order Deadline Time
-                </label>
-                <input
-                  type="time"
-                  id="orderDeadlineHour"
-                  name="orderDeadlineHour"
-                  value={formData.orderDeadlineHour}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
-                  required
-                />
+                <div>
+                  <label htmlFor="orderDeadlineHour" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Order Deadline Time
+                  </label>
+                  <input
+                    type="time"
+                    id="orderDeadlineHour"
+                    name="orderDeadlineHour"
+                    value={formData.orderDeadlineHour}
+                    onChange={handleInputChange}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
+                    required
+                  />
+                </div>
               </div>
 
               <div>
@@ -386,16 +426,17 @@ export default function HouseDashboard() {
                       onClick={() => removeFoodItem(index)}
                       className="px-2 py-1 text-red-600 hover:text-red-800"
                     >
-                      Remove
+                      <span className="material-icons-outlined">delete</span>
                     </button>
                   </div>
                 ))}
                 <button
                   type="button"
                   onClick={addFoodItem}
-                  className="text-blue-600 hover:text-blue-800 text-sm"
+                  className="text-blue-600 hover:text-blue-800 text-sm flex items-center"
                 >
-                  + Add Food Item
+                  <span className="material-icons-outlined text-sm mr-1">add</span>
+                  Add Food Item
                 </button>
               </div>
 
@@ -413,11 +454,11 @@ export default function HouseDashboard() {
 
       {/* Active Meals List */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow mb-8">
-        <h2 className="text-xl font-semibold p-6 border-b dark:border-gray-700">Active Meals</h2>
+        <h2 className="text-xl font-semibold p-4 sm:p-6 border-b dark:border-gray-700">Current Meals</h2>
         <div className="divide-y dark:divide-gray-700">
-          {meals.filter(meal => meal.isAvailable).map((meal) => (
-            <div key={meal.id} className="p-6">
-              <div className="flex justify-between items-start">
+          {meals.map((meal) => (
+            <div key={meal.id} className="p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
                 <div>
                   <h3 className="text-lg font-medium">{meal.mealTitle}</h3>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -430,46 +471,77 @@ export default function HouseDashboard() {
                     <span className="text-sm font-medium">Food Items:</span>
                     <ul className="mt-1 space-y-1">
                       {meal.foodItems.map((item, index) => (
-                        <li key={index} className="text-sm text-gray-600 dark:text-gray-300">
-                          • {item.name}
+                        <li key={index} className="text-sm text-gray-600 dark:text-gray-300 flex items-center">
+                          <span className="material-icons-outlined text-amber-500 text-sm mr-2">lunch_dining</span>
+                          {item.name}
                         </li>
                       ))}
                     </ul>
                   </div>
                 </div>
+                <div className="mt-4">
+  <h4 className="text-sm font-medium mb-2">Orders:</h4>
+  {meal.orders && meal.orders.length > 0 ? (
+    <div className="space-y-2">
+      {meal.orders.map((order, index) => (
+        <div key={index} className="bg-gray-50 dark:bg-gray-700 p-2 rounded-lg text-sm">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="font-medium">{order.studentName}</p>
+              <p className="text-gray-600 dark:text-gray-400">
+                <a href={`tel:${order.studentPhone}`} className="hover:underline">
+                  {order.studentPhone}
+                </a>
+              </p>
+            </div>
+            <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">
+              Qty: {order.quantity}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  ) : (
+    <p className="text-sm text-gray-500 dark:text-gray-400">No orders yet</p>
+  )}
+</div>
                 <div className="text-right">
-                  <span className="px-2 py-1 text-sm rounded bg-green-100 text-green-800">
-                    Available
+                  <span className={`px-2 py-1 text-sm rounded ${
+                    meal.ordersAccepted >= meal.quantityPrepared 
+                      ? 'bg-red-100 text-red-800'
+                      : 'bg-green-100 text-green-800'
+                  }`}>
+                    {meal.ordersAccepted >= meal.quantityPrepared ? 'Fully Booked' : 'Available'}
                   </span>
                 </div>
               </div>
             </div>
           ))}
-          {meals.filter(meal => meal.isAvailable).length === 0 && (
-            <p className="p-6 text-center text-gray-500 dark:text-gray-400">
-              No active meals
+          {meals.length === 0 && (
+            <p className="p-4 sm:p-6 text-center text-gray-500 dark:text-gray-400">
+              No meals created yet
             </p>
           )}
         </div>
       </div>
 
       {/* Past Orders Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
-        <h2 className="text-xl font-semibold p-6 border-b dark:border-gray-700">Past Orders</h2>
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+        <h2 className="text-xl font-semibold p-4 sm:p-6 border-b dark:border-gray-700">Past Orders</h2>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-700">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                   Meal Title
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                   Date
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                   Orders
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                   Revenue
                 </th>
               </tr>
@@ -477,7 +549,7 @@ export default function HouseDashboard() {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {pastOrders.map((order) => (
                 <tr key={order.id}>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                       {order.mealTitle}
                     </div>
@@ -485,20 +557,20 @@ export default function HouseDashboard() {
                       {order.foodItems.join(', ')}
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                  <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     {order.pickupTime.toDate().toLocaleDateString()}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                  <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     {order.totalOrders}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                  <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     Rs. {order.totalRevenue}
                   </td>
                 </tr>
               ))}
               {pastOrders.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={4} className="px-4 sm:px-6 py-4 text-center text-gray-500 dark:text-gray-400">
                     No past orders
                   </td>
                 </tr>

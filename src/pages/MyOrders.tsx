@@ -8,6 +8,7 @@ import { motion } from 'framer-motion';
 
 interface OrderWithMeal extends Order {
   meal: Meal;
+  quantity: number;
 }
 
 const container = {
@@ -24,6 +25,9 @@ export default function MyOrders() {
   const { currentUser } = useAuth();
   const [orders, setOrders] = useState<OrderWithMeal[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Calculate total amount
+  const totalAmount = orders.reduce((sum, order) => sum + (order.meal.price * (order.quantity || 1)), 0);
 
   useEffect(() => {
     fetchOrders();
@@ -59,6 +63,7 @@ export default function MyOrders() {
           id: orderDoc.id,
           studentId: orderData.studentId,
           mealId: orderData.mealId,
+          quantity: orderData.quantity || 1,
           createdAt: orderData.createdAt instanceof Timestamp 
             ? orderData.createdAt.toDate() 
             : new Date(orderData.createdAt),
@@ -71,7 +76,7 @@ export default function MyOrders() {
             orderDeadline: mealData.orderDeadline instanceof Timestamp
               ? mealData.orderDeadline.toDate()
               : new Date(mealData.orderDeadline)
-          }
+          } as Meal
         } as OrderWithMeal;
       });
 
@@ -103,6 +108,30 @@ export default function MyOrders() {
         My Orders
       </h1>
 
+      {/* Total Amount Card */}
+      {orders.length > 0 && (
+        <GlassCard className="mb-8 p-6 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-gray-800 dark:to-gray-700">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center">
+              <span className="material-icons-outlined text-2xl text-amber-600 dark:text-amber-400 mr-3">
+                account_balance_wallet
+              </span>
+              <div>
+                <h3 className="text-lg font-medium text-gray-700 dark:text-gray-200">
+                  Total Spent
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {orders.length} order{orders.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-gray-800 dark:text-white">
+              Rs. {totalAmount}
+            </div>
+          </div>
+        </GlassCard>
+      )}
+
       <motion.div
         variants={container}
         initial="hidden"
@@ -124,8 +153,14 @@ export default function MyOrders() {
                     </span>
                   </p>
                   <p className="flex items-center">
+                    <span className="material-icons-outlined text-lg mr-2">shopping_cart</span>
+                    <span className="font-medium">Quantity: {order.quantity}</span>
+                  </p>
+                  <p className="flex items-center">
                     <span className="material-icons-outlined text-lg mr-2">payments</span>
-                    <span className="font-medium">Rs. {order.meal.price}</span>
+                    <span className="font-medium">
+                      Rs. {order.meal.price} × {order.quantity} = Rs. {order.meal.price * order.quantity}
+                    </span>
                   </p>
                   <p className="flex items-center">
                     <span className="material-icons-outlined text-lg mr-2">event</span>

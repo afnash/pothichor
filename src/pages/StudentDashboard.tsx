@@ -10,7 +10,9 @@ import {
   updateDoc,
   doc,
   Timestamp,
-  orderBy
+  orderBy,
+  getDoc,
+  arrayUnion
 } from 'firebase/firestore';
 import { Meal } from '../types';
 import OrderConfirmationModal from '../components/OrderConfirmationModal';
@@ -47,40 +49,41 @@ export default function StudentDashboard() {
       const mealsRef = collection(db, 'meals');
       const now = new Date();
       
-      // Get all available meals ordered by pickup time
+      // Get all meals with future deadlines
       const q = query(
         mealsRef,
-        where('isAvailable', '==', true),
         where('orderDeadline', '>', now),
         orderBy('orderDeadline', 'asc')
       );
       
       const querySnapshot = await getDocs(q);
-      console.log('Total meals found:', querySnapshot.size);
       
-      const fetchedMeals = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        console.log('Meal data:', data);
+      // Fetch house details for each meal
+      const mealsWithHouseDetails = await Promise.all(querySnapshot.docs.map(async docSnapshot => {
+        const data = docSnapshot.data();
         
-        // Convert Firestore Timestamps to JavaScript Dates
-        const pickupTime = data.pickupTime instanceof Timestamp 
-          ? data.pickupTime.toDate() 
-          : new Date(data.pickupTime);
-          
-        const orderDeadline = data.orderDeadline instanceof Timestamp
-          ? data.orderDeadline.toDate()
-          : new Date(data.orderDeadline);
-
+        // Fetch house user details
+        const houseRef = doc(db, 'users', data.houseId);
+        const houseDoc = await getDoc(houseRef);
+        const houseData = houseDoc.data() || {};
+        const houseName = typeof houseData.email === 'string' ? houseData.email.split('@')[0] : 'Unknown House';
+        
         return {
-          id: doc.id,
+          id: docSnapshot.id,
           ...data,
-          pickupTime,
-          orderDeadline
-        } as Meal;
-      });
+          houseName,
+          houseLocation: houseData.location,
+          housePhone: houseData.phoneNumber,
+          pickupTime: data.pickupTime instanceof Timestamp 
+            ? data.pickupTime.toDate() 
+            : new Date(data.pickupTime),
+          orderDeadline: data.orderDeadline instanceof Timestamp
+            ? data.orderDeadline.toDate()
+            : new Date(data.orderDeadline)
+        } as unknown as Meal;
+      }));
 
-      console.log('Processed meals:', fetchedMeals);
-      setMeals(fetchedMeals);
+      setMeals(mealsWithHouseDetails);
     } catch (error) {
       console.error('Error fetching meals:', error);
       setError('Failed to fetch meals. Please try again later.');
@@ -89,7 +92,10 @@ export default function StudentDashboard() {
     }
   };
 
+  const [orderQuantity, setOrderQuantity] = useState(1);
+
   const handleOrderClick = (meal: Meal) => {
+    setOrderQuantity(1); // Reset quantity when selecting a new meal
     setSelectedMeal(meal);
   };
 
@@ -100,25 +106,34 @@ export default function StudentDashboard() {
       setLoading(true);
       setError(null);
 
-      // Create order
-      await addDoc(collection(db, 'orders'), {
+      // Create order with student details
+      const orderData = {
         studentId: currentUser.uid,
+        studentName: currentUser.name || currentUser.email?.split('@')[0] || 'Unknown',
+        studentPhone: currentUser.phoneNumber || '',
         mealId: selectedMeal.id,
+        quantity: orderQuantity,
         createdAt: Timestamp.now()
-      });
+      };
 
-      // Update meal's ordersAccepted count
+      // Add order to orders collection
+      const orderRef = await addDoc(collection(db, 'orders'), orderData);
+
+      // Update meal's ordersAccepted count and orders array
       const mealRef = doc(db, 'meals', selectedMeal.id!);
-      const newOrdersAccepted = selectedMeal.ordersAccepted + 1;
+      const newOrdersAccepted = selectedMeal.ordersAccepted + orderQuantity;
       const isAvailable = newOrdersAccepted < selectedMeal.quantityPrepared;
 
       await updateDoc(mealRef, {
         ordersAccepted: newOrdersAccepted,
-        isAvailable
+        isAvailable,
+        orders: arrayUnion({
+          ...orderData,
+          id: orderRef.id
+        })
       });
 
       // Send confirmation email and schedule reminder
-      // Don't throw errors if these fail
       await sendOrderConfirmation(currentUser.email!, selectedMeal).catch(error => {
         console.error('Email confirmation failed:', error);
       });
@@ -127,13 +142,8 @@ export default function StudentDashboard() {
         console.error('Reminder scheduling failed:', error);
       });
 
-      // Reset selected meal
       setSelectedMeal(null);
-
-      // Navigate to My Orders page
       navigate('/my-orders');
-
-      // Refresh meals list
       fetchAvailableMeals();
     } catch (error) {
       console.error('Error placing order:', error);
@@ -188,27 +198,56 @@ export default function StudentDashboard() {
           >
             <div className="flex justify-between items-start mb-4">
               <div>
-                <h2 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
-                  {meal.mealTitle}
-                </h2>
-                <div className="space-y-2 text-gray-600 dark:text-gray-300">
-                  <p className="flex items-center">
-                    <span className="material-icons-outlined text-lg mr-2">schedule</span>
-                    Pickup: {meal.pickupTime.toLocaleString()}
+                <h3 className="text-xl font-semibold mb-2">{meal.mealTitle}</h3>
+                <div className="mb-4">
+                  <p className="text-gray-600 dark:text-gray-300 font-medium">
+                    by {meal.houseName}
                   </p>
-                  <p className="flex items-center">
-                    <span className="material-icons-outlined text-lg mr-2">event</span>
-                    Order by: {meal.orderDeadline.toLocaleString()}
-                  </p>
-                  <p className="flex items-center">
-                    <span className="material-icons-outlined text-lg mr-2">payments</span>
-                    Rs. {meal.price}
-                  </p>
-                  <p className="flex items-center">
-                    <span className="material-icons-outlined text-lg mr-2">people</span>
-                    {meal.quantityPrepared - meal.ordersAccepted} slots left
-                  </p>
+                  <div className="mt-2 space-y-1">
+                    {meal.houseLocation && (
+                      <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center">
+                        <span className="material-icons-outlined text-sm mr-1">location_on</span>
+                        {meal.houseLocation.area}
+                        <span className="mx-1">•</span>
+                        {meal.houseLocation.address}
+                      </p>
+                    )}
+                    {meal.housePhone && (
+                      <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center">
+                        <span className="material-icons-outlined text-sm mr-1">phone</span>
+                        <a href={`tel:${meal.housePhone}`} className="hover:underline">
+                          {meal.housePhone}
+                        </a>
+                      </p>
+                    )}
+                  </div>
                 </div>
+
+                <div className="space-y-2 mb-4">
+                  <div className="flex items-center text-sm text-gray-600 dark:text-gray-300">
+                    <span className="material-icons-outlined text-sm mr-1">schedule</span>
+                    Pickup: {meal.pickupTime.toLocaleString()}
+                  </div>
+                  <div className="flex items-center text-sm text-gray-600 dark:text-gray-300">
+                    <span className="material-icons-outlined text-sm mr-1">timer</span>
+                    Order by: {meal.orderDeadline.toLocaleString()}
+                  </div>
+                  <div className="flex items-center text-sm text-gray-600 dark:text-gray-300">
+                    <span className="material-icons-outlined text-sm mr-1">people</span>
+                    {meal.ordersAccepted}/{meal.quantityPrepared} orders
+                  </div>
+                </div>
+              </div>
+              <div>
+                {meal.ordersAccepted >= meal.quantityPrepared ? (
+                  <span className="px-2 py-1 text-sm rounded bg-red-100 text-red-800">
+                    Fully Booked
+                  </span>
+                ) : (
+                  <span className="px-2 py-1 text-sm rounded bg-green-100 text-green-800">
+                    Available
+                  </span>
+                )}
               </div>
             </div>
 
@@ -236,7 +275,7 @@ export default function StudentDashboard() {
               <button
                 onClick={() => handleOrderClick(meal)}
                 className="w-full px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-medium flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-300"
-                disabled={loading}
+                disabled={loading || meal.ordersAccepted >= meal.quantityPrepared}
               >
                 <span className="material-icons-outlined">shopping_cart</span>
                 <span>{loading ? 'Ordering...' : 'Order Now'}</span>
@@ -262,6 +301,9 @@ export default function StudentDashboard() {
           meal={selectedMeal}
           onConfirm={handleOrderConfirm}
           onCancel={handleOrderCancel}
+          quantity={orderQuantity}
+          setQuantity={setOrderQuantity}
+          maxQuantity={selectedMeal.quantityPrepared - selectedMeal.ordersAccepted}
         />
       )}
     </motion.div>
