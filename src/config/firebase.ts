@@ -5,12 +5,12 @@ import { getFunctions } from 'firebase/functions';
 
 const firebaseConfig = {
   // Replace with your Firebase config
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID
+  apiKey: "AIzaSyB_v3aFmv4guZWdcPhxMf4hWm4n-7KDCYY",
+  authDomain: "pothichor77.firebaseapp.com",
+  projectId: "pothichor77",
+  storageBucket: "pothichor77.firebasestorage.app",
+  messagingSenderId: "1044207983123",
+  appId: "1:1044207983123:web:8f3b8041c32e364d2a3de6"
 };
 
 const app = initializeApp(firebaseConfig);
