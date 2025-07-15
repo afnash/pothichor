@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { UserRole, UserDetails } from '../types';
-import { motion } from 'framer-motion';
+import { motion, easeInOut } from 'framer-motion';
 
 const fadeIn = {
   hidden: { opacity: 0, y: 20 },
@@ -11,7 +11,7 @@ const fadeIn = {
     y: 0,
     transition: {
       duration: 0.6,
-      ease: "easeInOut"
+      ease: easeInOut
     }
   }
 };
@@ -33,7 +33,7 @@ const float = {
     transition: {
       duration: 4,
       repeat: Infinity,
-      ease: "easeInOut"
+      ease: easeInOut
     }
   }
 };

@@ -92,8 +92,7 @@ const showNotification = (reminder: any) => {
     new Notification('Food Pickup Reminder', {
       body: `Your order "${reminder.mealTitle}" is ready for pickup in 15 minutes!\nPickup time: ${pickupTime.toLocaleString()}`,
       icon: '/favicon.ico', // Add your app icon path here
-      badge: '/favicon.ico',
-      vibrate: [200, 100, 200]
+      badge: '/favicon.ico'
     });
   }
 }; 
