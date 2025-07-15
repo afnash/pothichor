@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { UserRole, Location, UserDetails } from '../types';
+import { UserRole, UserDetails } from '../types';
 import { motion } from 'framer-motion';
 
 const fadeIn = {
@@ -11,7 +11,7 @@ const fadeIn = {
     y: 0,
     transition: {
       duration: 0.6,
-      ease: "easeOut"
+      ease: "easeInOut"
     }
   }
 };

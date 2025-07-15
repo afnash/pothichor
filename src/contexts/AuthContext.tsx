@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import {
   signInWithPopup,
-  GoogleAuthProvider,
   signOut,
   onAuthStateChanged,
   User as FirebaseUser
